@@ -152,6 +152,13 @@ async function handleGenerateAuthUrl(req, res) {
 async function handleExchangeCode(req, res) {
   try {
     const { code, sessionId, debugRaw } = await readJsonBody(req);
+    const debugRawEnabled =
+      debugRaw === true ||
+      debugRaw === 1 ||
+      debugRaw === '1' ||
+      debugRaw === 'true' ||
+      debugRaw === 'on';
+
     const session = OAUTH_SESSIONS.get(String(sessionId));
 
     if (!session) return sendJson(res, 400, { success: false, message: '会话无效或已过期' });
@@ -186,7 +193,7 @@ async function handleExchangeCode(req, res) {
       tokenData = rawText ? JSON.parse(rawText) : {};
     } catch {
       const snippet = String(rawText || '').slice(0, 200).replace(/\s+/g, ' ').trim();
-      const requestForLog = debugRaw
+      const requestForLog = debugRawEnabled
         ? { ...upstreamBody }
         : {
           ...upstreamBody,
@@ -209,7 +216,7 @@ async function handleExchangeCode(req, res) {
       });
     }
 
-    const requestForLog = debugRaw
+    const requestForLog = debugRawEnabled
       ? { ...upstreamBody }
       : {
         ...upstreamBody,
@@ -218,13 +225,23 @@ async function handleExchangeCode(req, res) {
       };
 
     const tokenDataForLog = { ...tokenData };
-    if (!debugRaw) {
+    if (!debugRawEnabled) {
       for (const k of ['access_token', 'refresh_token', 'id_token']) {
         if (k in tokenDataForLog) tokenDataForLog[k] = redact(tokenDataForLog[k]);
       }
     }
 
+    let decodedIdTokenPayloadForLog = null;
+    if (tokenData && tokenData.id_token) {
+      try {
+        decodedIdTokenPayloadForLog = decodeJwtPayload(tokenData.id_token);
+      } catch {
+        decodedIdTokenPayloadForLog = null;
+      }
+    }
+
     const debug = {
+      debug_raw_enabled: debugRawEnabled,
       token_endpoint: tokenEndpoint,
       request: requestForLog,
       response: {
@@ -232,7 +249,8 @@ async function handleExchangeCode(req, res) {
         ok: tokenRes.ok,
         content_type: tokenRes.headers.get('content-type') || '',
         fields: Object.keys(tokenData || {}),
-        body: tokenDataForLog
+        body: tokenDataForLog,
+        decoded_id_token_payload: decodedIdTokenPayloadForLog
       }
     };
 
@@ -255,6 +273,9 @@ async function handleExchangeCode(req, res) {
         access_token: tokenData.access_token,
         expires_in: tokenData.expires_in,
         client_id: clientId,
+
+        // OpenID Connect ID Token (JWT)
+        id_token: tokenData.id_token,
 
         // id_token 的 payload（未验签，仅用于展示/调试）
         id_token_payload: payload,

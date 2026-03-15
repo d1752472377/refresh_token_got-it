@@ -625,6 +625,9 @@
 
                 log(`Auth code extracted (len=${String(code).length}).`, 'info');
                 log(`Using sessionId: ${(sessionId || '').substring(0, 8) || 'N/A'}...`, 'info');
+                if (debugRawLog?.checked) {
+                    log('DEBUG raw logging is ENABLED. Upstream tokens will be printed in syslog.', 'warn');
+                }
                 log('Exchanging code for token...', 'info');
 
                 const res = await fetch('/api/exchange-code', {
