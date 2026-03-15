@@ -303,7 +303,25 @@
 
     <main>
         <div class="control-panel">
-            
+
+            <section id="step0">
+                <h2>STEP 00 // API_KEY</h2>
+                <p style="color: #666; font-size: 12px; margin-bottom: 10px;">> OPTIONAL: required only when server sets API_KEY.</p>
+                <div class="input-wrapper">
+                    <input id="apiKeyInput" type="password" placeholder="API_KEY（可选，仅当服务器设置了 API_KEY 才需要）" autocomplete="off">
+                    <button id="toggleApiKeyBtn" class="btn btn-copy" type="button">显示</button>
+                    <button id="clearApiKeyBtn" class="btn btn-copy" type="button">清空</button>
+                </div>
+
+                <div style="margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <label style="font-size: 12px; color: #aaa; display: flex; align-items: center; gap: 8px;">
+                        <input id="rememberApiKey" type="checkbox" style="width: auto; margin: 0; accent-color: var(--accent-color);">
+                        记住（localStorage）
+                    </label>
+                    <span style="font-size: 12px; color: #666;">localStorage 以明文存储 API_KEY，请谨慎开启。</span>
+                </div>
+            </section>
+
             <section id="step1">
                 <h2>STEP 01 // INITIALIZE_AUTH</h2>
                 <div style="display: flex; gap: 20px; align-items: flex-end;">
@@ -380,6 +398,74 @@
         let sessionId = localStorage.getItem('oauth_session_id');
         const DEFAULT_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
 
+        // API key (optional): used only when server enables API_KEY protection
+        const API_KEY_STORAGE_KEY = 'token_extractor_api_key';
+
+        const apiKeyInput = document.getElementById('apiKeyInput');
+        const rememberApiKey = document.getElementById('rememberApiKey');
+        const toggleApiKeyBtn = document.getElementById('toggleApiKeyBtn');
+        const clearApiKeyBtn = document.getElementById('clearApiKeyBtn');
+
+        function getApiKey() {
+            return (apiKeyInput?.value || '').trim();
+        }
+
+        function buildApiHeaders() {
+            const headers = { 'Content-Type': 'application/json' };
+            const key = getApiKey();
+            if (key) headers['Authorization'] = `Bearer ${key}`;
+            return headers;
+        }
+
+        function loadRememberedApiKey() {
+            try {
+                const saved = localStorage.getItem(API_KEY_STORAGE_KEY);
+                if (saved) {
+                    apiKeyInput.value = saved;
+                    rememberApiKey.checked = true;
+                }
+            } catch {
+                // ignore storage errors
+            }
+        }
+
+        function syncApiKeyPersistence() {
+            const key = getApiKey();
+            try {
+                if (rememberApiKey.checked && key) {
+                    localStorage.setItem(API_KEY_STORAGE_KEY, key);
+                } else {
+                    localStorage.removeItem(API_KEY_STORAGE_KEY);
+                }
+            } catch {
+                // ignore storage errors
+            }
+        }
+
+        function clearApiKey() {
+            apiKeyInput.value = '';
+            rememberApiKey.checked = false;
+            try {
+                localStorage.removeItem(API_KEY_STORAGE_KEY);
+            } catch {
+                // ignore storage errors
+            }
+        }
+
+        function toggleApiKeyVisibility() {
+            const isPassword = apiKeyInput.type === 'password';
+            apiKeyInput.type = isPassword ? 'text' : 'password';
+            toggleApiKeyBtn.textContent = isPassword ? '隐藏' : '显示';
+        }
+
+        // init + bindings
+        loadRememberedApiKey();
+        rememberApiKey.addEventListener('change', syncApiKeyPersistence);
+        apiKeyInput.addEventListener('input', syncApiKeyPersistence);
+        apiKeyInput.addEventListener('blur', syncApiKeyPersistence);
+        clearApiKeyBtn.addEventListener('click', clearApiKey);
+        toggleApiKeyBtn.addEventListener('click', toggleApiKeyVisibility);
+
         // 日志系统 (保持英文)
         function log(msg, type = 'info') {
             const terminal = document.getElementById('terminal');
@@ -445,11 +531,18 @@
             try {
                 const res = await fetch('/api/generate-auth-url', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: buildApiHeaders(),
                     body: JSON.stringify({})
                 });
+
+                if (res.status === 401) {
+                    log('Unauthorized (401). Please set API_KEY in STEP 00 and retry.', 'error');
+                    apiKeyInput.focus();
+                    return;
+                }
+
                 const data = await parseApiResponse(res);
-                
+
                 if (data.success) {
                     document.getElementById('authUrl').value = data.data.authUrl;
                     document.getElementById('authUrlWrapper').style.display = 'flex';
@@ -501,11 +594,18 @@
 
                 const res = await fetch('/api/exchange-code', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: buildApiHeaders(),
                     body: JSON.stringify({ code, sessionId })
                 });
+
+                if (res.status === 401) {
+                    log('Unauthorized (401). Please set API_KEY in STEP 00 and retry.', 'error');
+                    apiKeyInput.focus();
+                    return;
+                }
+
                 const data = await parseApiResponse(res);
-                
+
                 if (data.success) {
                     document.getElementById('clientId').value = data.data.client_id || DEFAULT_CLIENT_ID;
                     document.getElementById('refreshToken').value = data.data.refresh_token;
