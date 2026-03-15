@@ -190,7 +190,10 @@ async function handleExchangeCode(req, res) {
         access_token: tokenData.access_token,
         expires_in: tokenData.expires_in,
         client_id: clientId,
-        user_email: payload.email 
+
+        // id_token 的 payload（未验签，仅用于展示/调试）
+        id_token_payload: payload,
+        user_email: payload.email
       }
     });
   } catch (err) {

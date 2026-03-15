@@ -371,6 +371,14 @@
                         <button class="btn btn-copy" onclick="copy('accessToken', 'ACCESS_TOKEN')">复制</button>
                     </div>
                 </div>
+
+                <div style="margin-bottom: 15px;">
+                    <label style="font-size: 12px; color: #fff; font-weight: bold;">ID_TOKEN_PAYLOAD</label>
+                    <div class="input-wrapper" style="align-items: flex-start;">
+                        <textarea id="idTokenPayload" readonly rows="8" style="width: 100%; background: transparent; border: none; color: #e0e0e0; font-family: 'Share Tech Mono', 'Consolas', monospace; font-size: 12px; padding: 10px 0; outline: none; resize: vertical;"></textarea>
+                        <button class="btn btn-copy" onclick="copy('idTokenPayload', 'ID_TOKEN_PAYLOAD')">复制</button>
+                    </div>
+                </div>
             </section>
         </div>
 
@@ -611,7 +619,10 @@
                     document.getElementById('refreshToken').value = data.data.refresh_token;
                     // 新增 Access Token 赋值
                     document.getElementById('accessToken').value = data.data.access_token || 'N/A';
-                    
+
+                    const payload = data.data.id_token_payload || {};
+                    document.getElementById('idTokenPayload').value = JSON.stringify(payload, null, 2);
+
                     document.getElementById('resultArea').classList.remove('hidden');
                     
                     log('Token exchange successful.', 'success');
