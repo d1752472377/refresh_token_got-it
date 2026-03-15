@@ -343,6 +343,14 @@
                 <div style="margin-top: 20px;">
                     <button id="extractBtn" class="btn" style="width: 100%">提取 Token</button>
                 </div>
+
+                <div style="margin-top: 12px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <label style="font-size: 12px; color: #aaa; display: flex; align-items: center; gap: 8px;">
+                        <input id="debugRawLog" type="checkbox" style="width: auto; margin: 0; accent-color: var(--accent-color);">
+                        DEBUG：明文打印全部上游返回（含 token）
+                    </label>
+                    <span style="font-size: 12px; color: #666;">开启后会在右侧日志输出 access/refresh/id_token 明文，注意不要截图/录屏泄露。</span>
+                </div>
             </section>
 
             <section id="resultArea" class="hidden result-box">
@@ -413,6 +421,7 @@
         const rememberApiKey = document.getElementById('rememberApiKey');
         const toggleApiKeyBtn = document.getElementById('toggleApiKeyBtn');
         const clearApiKeyBtn = document.getElementById('clearApiKeyBtn');
+        const debugRawLog = document.getElementById('debugRawLog');
 
         function getApiKey() {
             return (apiKeyInput?.value || '').trim();
@@ -519,6 +528,18 @@
             }
         }
 
+        function logJson(title, obj, type = 'info') {
+            try {
+                log(title, type);
+                const text = JSON.stringify(obj, null, 2);
+                for (const line of text.split('\n')) {
+                    log(`  ${line}`, type);
+                }
+            } catch (e) {
+                log(`Failed to render JSON log: ${e.message}`, 'warn');
+            }
+        }
+
         // 自动检测回调
         window.onload = () => {
             const urlParams = new URLSearchParams(window.location.search);
@@ -550,6 +571,10 @@
                 }
 
                 const data = await parseApiResponse(res);
+
+                if (data.debug) {
+                    logJson('DEBUG_TRACE // /api/generate-auth-url', data.debug, 'warn');
+                }
 
                 if (data.success) {
                     document.getElementById('authUrl').value = data.data.authUrl;
@@ -598,12 +623,14 @@
                     return;
                 }
 
+                log(`Auth code extracted (len=${String(code).length}).`, 'info');
+                log(`Using sessionId: ${(sessionId || '').substring(0, 8) || 'N/A'}...`, 'info');
                 log('Exchanging code for token...', 'info');
 
                 const res = await fetch('/api/exchange-code', {
                     method: 'POST',
                     headers: buildApiHeaders(),
-                    body: JSON.stringify({ code, sessionId })
+                    body: JSON.stringify({ code, sessionId, debugRaw: !!debugRawLog?.checked })
                 });
 
                 if (res.status === 401) {
@@ -613,6 +640,10 @@
                 }
 
                 const data = await parseApiResponse(res);
+
+                if (data.debug) {
+                    logJson('DEBUG_TRACE // /api/exchange-code', data.debug, 'warn');
+                }
 
                 if (data.success) {
                     document.getElementById('clientId').value = data.data.client_id || DEFAULT_CLIENT_ID;

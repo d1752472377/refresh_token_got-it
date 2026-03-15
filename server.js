@@ -151,32 +151,97 @@ async function handleGenerateAuthUrl(req, res) {
 
 async function handleExchangeCode(req, res) {
   try {
-    const { code, sessionId } = await readJsonBody(req);
+    const { code, sessionId, debugRaw } = await readJsonBody(req);
     const session = OAUTH_SESSIONS.get(String(sessionId));
 
     if (!session) return sendJson(res, 400, { success: false, message: '会话无效或已过期' });
 
     const clientId = resolveClientId(session.clientId);
 
-    const tokenRes = await fetch(`${OPENAI_CONFIG.BASE_URL}/oauth/token`, {
+    const redact = (value, keep = 8) => {
+      const v = String(value || '');
+      if (!v) return '';
+      if (v.length <= keep) return `${v}(${v.length})`;
+      return `${v.slice(0, keep)}...(${v.length})`;
+    };
+
+    const tokenEndpoint = `${OPENAI_CONFIG.BASE_URL}/oauth/token`;
+    const upstreamBody = {
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: OPENAI_CONFIG.REDIRECT_URI,
+      client_id: clientId,
+      code_verifier: session.codeVerifier
+    };
+
+    const tokenRes = await fetch(tokenEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: OPENAI_CONFIG.REDIRECT_URI,
-        client_id: clientId,
-        code_verifier: session.codeVerifier
-      })
+      body: new URLSearchParams(upstreamBody)
     });
 
-    const tokenData = await parseJsonResponse(tokenRes);
+    const rawText = await tokenRes.text();
+    let tokenData = {};
+    try {
+      tokenData = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      const snippet = String(rawText || '').slice(0, 200).replace(/\s+/g, ' ').trim();
+      const requestForLog = debugRaw
+        ? { ...upstreamBody }
+        : {
+          ...upstreamBody,
+          code: redact(upstreamBody.code),
+          code_verifier: redact(upstreamBody.code_verifier)
+        };
+
+      return sendJson(res, 502, {
+        success: false,
+        message: `上游返回了非 JSON 响应（HTTP ${tokenRes.status}）：${snippet}`,
+        debug: {
+          token_endpoint: tokenEndpoint,
+          request: requestForLog,
+          response: {
+            status: tokenRes.status,
+            ok: tokenRes.ok,
+            content_type: tokenRes.headers.get('content-type') || ''
+          }
+        }
+      });
+    }
+
+    const requestForLog = debugRaw
+      ? { ...upstreamBody }
+      : {
+        ...upstreamBody,
+        code: redact(upstreamBody.code),
+        code_verifier: redact(upstreamBody.code_verifier)
+      };
+
+    const tokenDataForLog = { ...tokenData };
+    if (!debugRaw) {
+      for (const k of ['access_token', 'refresh_token', 'id_token']) {
+        if (k in tokenDataForLog) tokenDataForLog[k] = redact(tokenDataForLog[k]);
+      }
+    }
+
+    const debug = {
+      token_endpoint: tokenEndpoint,
+      request: requestForLog,
+      response: {
+        status: tokenRes.status,
+        ok: tokenRes.ok,
+        content_type: tokenRes.headers.get('content-type') || '',
+        fields: Object.keys(tokenData || {}),
+        body: tokenDataForLog
+      }
+    };
+
     if (!tokenRes.ok) {
       const statusCode = tokenRes.status === 429 ? 429 : 400;
       const message = tokenRes.status === 429
         ? 'OpenAI 限流（429）。请稍后重试，或使用你自己的 OPENAI_CLIENT_ID / 代理后再试。'
         : 'OpenAI error';
-      return sendJson(res, statusCode, { success: false, message, error: tokenData });
+      return sendJson(res, statusCode, { success: false, message, error: tokenData, debug });
     }
 
     const payload = decodeJwtPayload(tokenData.id_token);
@@ -194,7 +259,8 @@ async function handleExchangeCode(req, res) {
         // id_token 的 payload（未验签，仅用于展示/调试）
         id_token_payload: payload,
         user_email: payload.email
-      }
+      },
+      debug
     });
   } catch (err) {
     return sendJson(res, 500, { success: false, message: err.message });
