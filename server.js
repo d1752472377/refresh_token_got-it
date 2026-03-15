@@ -18,6 +18,11 @@ const OPENAI_CONFIG = {
   SCOPE: process.env.OPENAI_SCOPE || 'openid profile email offline_access'
 };
 
+// 简单的 API 访问控制（用于保护 /api/*）
+// 通过环境变量设置：API_KEY=一个足够长的随机字符串
+// 客户端请求时带上：Authorization: Bearer <API_KEY>
+const API_KEY = String(process.env.API_KEY || '').trim();
+
 const OAUTH_SESSIONS = new Map();
 const SESSION_TTL_MS = 10 * 60 * 1000;
 
@@ -31,6 +36,24 @@ const MIME_TYPES = {
 function sendJson(res, statusCode, payload) {
   res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(payload));
+}
+
+function safeEqual(a, b) {
+  const aa = Buffer.from(String(a || ''));
+  const bb = Buffer.from(String(b || ''));
+  if (aa.length !== bb.length) return false;
+  return crypto.timingSafeEqual(aa, bb);
+}
+
+function isAuthorizedApiRequest(req) {
+  // 如果未配置 API_KEY，则不启用鉴权（便于本地开发）。部署到公网时强烈建议设置。
+  if (!API_KEY) return true;
+
+  const auth = String(req.headers['authorization'] || '').trim();
+  const prefix = 'Bearer ';
+  if (!auth.startsWith(prefix)) return false;
+  const token = auth.slice(prefix.length).trim();
+  return safeEqual(token, API_KEY);
 }
 
 function readJsonBody(req) {
@@ -177,9 +200,19 @@ async function handleExchangeCode(req, res) {
 
 // 静态文件服务
 const server = http.createServer((req, res) => {
+  // 保护所有 /api/* 请求（简单 Bearer Token）
+  if (String(req.url || '').startsWith('/api/')) {
+    if (!isAuthorizedApiRequest(req)) {
+      return sendJson(res, 401, {
+        success: false,
+        message: 'Unauthorized: missing/invalid API key'
+      });
+    }
+  }
+
   if (req.method === 'POST' && req.url === '/api/generate-auth-url') return handleGenerateAuthUrl(req, res);
   if (req.method === 'POST' && req.url === '/api/exchange-code') return handleExchangeCode(req, res);
-  
+
   let filePath = path.join(PUBLIC_DIR, req.url === '/' ? 'index.html' : req.url);
   if (!path.normalize(filePath).startsWith(PUBLIC_DIR)) return sendJson(res, 403, { error: 'Forbidden' });
 

@@ -49,10 +49,14 @@ async function generateAuthorizationLink() {
   try {
     setStatus('正在生成授权链接...');
 
+    const apiKey = window.prompt('请输入 API Key（服务器设置的 API_KEY）用于调用接口：', '');
+    if (!apiKey) throw new Error('未提供 API Key');
+
     const resp = await fetch('/api/generate-auth-url', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({})
     });
@@ -83,10 +87,14 @@ async function exchangeToken() {
     const { code, callbackUrl } = parseCallbackUrl(callbackUrlInput.value);
     setStatus('正在向服务器兑换 token...');
 
+    const apiKey = window.prompt('请输入 API Key（服务器设置的 API_KEY）用于调用接口：', '');
+    if (!apiKey) throw new Error('未提供 API Key');
+
     const resp = await fetch('/api/exchange-code', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({ code, sessionId, callbackUrl })
     });
